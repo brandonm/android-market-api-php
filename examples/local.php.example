@@ -1,5 +1,6 @@
 <?php
-//Rename this file local.php and change the constants to match your Google Account credentials
-define('GOOGLE_EMAIL','someone@gmail.com');
-define('GOOGLE_PASSWD','SomePassword');
-define('ANDROID_DEVICEID','0000000000000000');
+// Google Play Store Settings
+define('LANG', 'en_US'); // can be en_US, fr_FR, ...
+define('GOOGLE_EMAIL','username@gmail.com');
+define('GOOGLE_PASSWD','pass123');
+define('ANDROID_DEVICEID','1111111111111111');

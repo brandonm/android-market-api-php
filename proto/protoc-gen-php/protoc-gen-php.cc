@@ -78,6 +78,39 @@ class PHPCodeGenerator : public CodeGenerator {
 PHPCodeGenerator::PHPCodeGenerator() {}
 PHPCodeGenerator::~PHPCodeGenerator() {}
 
+string PHPCastingString(const FieldDescriptor & field) {
+    switch(field.type()){
+	case FieldDescriptor::TYPE_DOUBLE: // double, exactly eight bytes on the wire
+	case FieldDescriptor::TYPE_FLOAT: // float, exactly four bytes on the wire.
+		return "(float)";
+		break;
+	case FieldDescriptor::TYPE_INT64:  // int64, varint on the wire.
+	case FieldDescriptor::TYPE_UINT64: // uint64, varint on the wire.
+	case FieldDescriptor::TYPE_INT32:  // int32, varint on the wire.
+	case FieldDescriptor::TYPE_UINT32: // uint32, varint on the wire
+	case FieldDescriptor::TYPE_ENUM:   // Enum, varint on the wire
+		return "(string)";
+		break;
+	case FieldDescriptor::TYPE_SINT32:   // int32, ZigZag-encoded varint on the wire
+	case FieldDescriptor::TYPE_FIXED32: // uint32, exactly four bytes on the wire.
+	case FieldDescriptor::TYPE_SFIXED32: // int32, exactly four bytes on the wire
+	case FieldDescriptor::TYPE_SINT64:   // int64, ZigZag-encoded varint on the wire
+	case FieldDescriptor::TYPE_FIXED64: // uint64, exactly eight bytes on the wire.
+	case FieldDescriptor::TYPE_SFIXED64: // int64, exactly eight bytes on the wire
+		return "(int)";
+		break;
+	case FieldDescriptor::TYPE_BOOL: // bool, varint on the wire.
+		return "(bool)";
+		break;
+	case FieldDescriptor::TYPE_STRING:  // UTF-8 text.
+	case FieldDescriptor::TYPE_BYTES:   // Arbitrary byte array.
+		return "(string)";
+		break;
+	default:
+		return "";
+    }
+}
+
 string UnderscoresToCamelCaseImpl(const string& input, bool cap_next_letter) {
   string result;
   // Note:  I distrust ctype.h due to locales.
@@ -225,7 +258,7 @@ void PHPCodeGenerator::PrintMessageRead(io::Printer &printer, const Descriptor &
 		string var ( VariableName(field) );
 		if (field.is_repeated())
 			var += "[]";
-		if (field.is_packable())
+		if (field.is_packable() && field.options().packed())
 			throw "Error we do not yet support packed values";
 		if (field.is_required())
 			required_fields.push_back( &field );
@@ -478,7 +511,7 @@ void PHPCodeGenerator::PrintMessageWrite(io::Printer &printer, const Descriptor 
 	for (int i = 0; i < message.field_count(); ++i) {
 		const FieldDescriptor &field ( *message.field(i) );
 
-		if (field.is_packable())
+		if (field.is_packable() && field.options().packed())
 			throw "Error we do not yet support packed values";
 
 		// Create the tag
@@ -493,11 +526,11 @@ void PHPCodeGenerator::PrintMessageWrite(io::Printer &printer, const Descriptor 
 		string commands;
 		switch (field.type()) {
 			case FieldDescriptor::TYPE_DOUBLE: // double, exactly eight bytes on the wire
-				commands = "`ns`Protobuf::write_double($fp, `var`);\n";
+				commands = "`ns`Protobuf::write_double($fp, (double)`var`);\n";
 				break;
 
 			case FieldDescriptor::TYPE_FLOAT: // float, exactly four bytes on the wire.
-				commands = "`ns`Protobuf::write_float($fp, `var`);\n";
+				commands = "`ns`Protobuf::write_float($fp, (float)`var`);\n";
 				break;
 
 			case FieldDescriptor::TYPE_INT64:  // int64, varint on the wire.
@@ -505,33 +538,33 @@ void PHPCodeGenerator::PrintMessageWrite(io::Printer &printer, const Descriptor 
 			case FieldDescriptor::TYPE_INT32:  // int32, varint on the wire.
 			case FieldDescriptor::TYPE_UINT32: // uint32, varint on the wire
 			case FieldDescriptor::TYPE_ENUM:   // Enum, varint on the wire
-				commands = "`ns`Protobuf::write_varint($fp, `var`);\n";
+				commands = "`ns`Protobuf::write_varint($fp, (int)`var`);\n";
 				break;
 
 			case FieldDescriptor::TYPE_FIXED64: // uint64, exactly eight bytes on the wire.
-				commands = "`ns`Protobuf::write_uint64($fp, `var`);\n";
+				commands = "`ns`Protobuf::write_uint64($fp, (int)`var`);\n";
 				break;
 
 			case FieldDescriptor::TYPE_SFIXED64: // int64, exactly eight bytes on the wire
-				commands = "`ns`Protobuf::write_int64($fp, `var`);\n";
+				commands = "`ns`Protobuf::write_int64($fp, (int)`var`);\n";
 				break;
 
 			case FieldDescriptor::TYPE_FIXED32: // uint32, exactly four bytes on the wire.
-				commands = "`ns`Protobuf::write_uint32($fp, `var`);\n";
+				commands = "`ns`Protobuf::write_uint32($fp, (int)`var`);\n";
 				break;
 
 			case FieldDescriptor::TYPE_SFIXED32: // int32, exactly four bytes on the wire
-				commands = "`ns`Protobuf::write_int32($fp, `var`);\n";
+				commands = "`ns`Protobuf::write_int32($fp, (int)`var`);\n";
 				break;
 
 			case FieldDescriptor::TYPE_BOOL: // bool, varint on the wire.
-				commands = "`ns`Protobuf::write_varint($fp, `var` ? 1 : 0);\n";
+				commands = "`ns`Protobuf::write_varint($fp, (int)`var` ? 1 : 0);\n";
 				break;
 
 			case FieldDescriptor::TYPE_STRING:  // UTF-8 text.
 			case FieldDescriptor::TYPE_BYTES:   // Arbitrary byte array.
-				commands = "`ns`Protobuf::write_varint($fp, strlen(`var`));\n"
-						   "fwrite($fp, `var`);\n";
+				commands = "`ns`Protobuf::write_varint($fp, strlen((string)`var`));\n"
+						   "fwrite($fp, (string)`var`);\n";
 				break;
 
 			case FieldDescriptor::TYPE_GROUP: {// Tag-delimited message.  Deprecated.
@@ -552,11 +585,11 @@ void PHPCodeGenerator::PrintMessageWrite(io::Printer &printer, const Descriptor 
 				break;
 
 			case FieldDescriptor::TYPE_SINT32:   // int32, ZigZag-encoded varint on the wire
-				commands = "`ns`Protobuf::write_zint32($fp, `var`);\n";
+				commands = "`ns`Protobuf::write_zint32($fp, (int)`var`);\n";
 				break;
 
 			case FieldDescriptor::TYPE_SINT64:   // int64, ZigZag-encoded varint on the wire
-				commands = "`ns`Protobuf::write_zint64($fp, `var`);\n";
+				commands = "`ns`Protobuf::write_zint64($fp, (int)`var`);\n";
 				break;
 
 			default:
@@ -644,7 +677,7 @@ void PHPCodeGenerator::PrintMessageSize(io::Printer &printer, const Descriptor &
 				if (field.type() == FieldDescriptor::TYPE_MESSAGE) {
 					command = "$l = `var`->size();\n";
 				} else {
-					command = "$l = strlen(`var`);\n";
+					command = "$l = strlen((string)`var`);\n";
 				}
 
 				command += "$size += `tag` + `ns`Protobuf::size_varint($l) + $l;\n";
@@ -750,7 +783,7 @@ void PHPCodeGenerator::PrintMessage(io::Printer &printer, const Descriptor & mes
 	/*
 	printer.Print(
 		"// Array maps field indexes to members\n"
-		"private static $_map = array (\n"
+		"protected static $_map = array (\n"
 	);
 	printer.Indent();
 			for (int i = 0; i < message.field_count(); ++i) {
@@ -765,7 +798,7 @@ void PHPCodeGenerator::PrintMessage(io::Printer &printer, const Descriptor & mes
 	printer.Print(");\n\n");
 	*/
 	if (!skip_unknown)
-		printer.Print("private $_unknown;\n");
+		printer.Print("protected $_unknown;\n");
 
 	// Constructor
 	printer.Print(
@@ -852,6 +885,7 @@ void PHPCodeGenerator::PrintMessage(io::Printer &printer, const Descriptor & mes
 		variables["capitalized_name"] = UnderscoresToCapitalizedCamelCase(field);
 		variables["default"]          = DefaultValueAsString(field, true);
 		variables["comment"]          = field.DebugString();
+		variables["cast"] 	      = PHPCastingString(field);
 
 		if (field.type() == FieldDescriptor::TYPE_GROUP) {
 			size_t p = variables["comment"].find ('{');
@@ -880,36 +914,50 @@ void PHPCodeGenerator::PrintMessage(io::Printer &printer, const Descriptor & mes
 			// Repeated field
 			printer.Print(variables,
 				"// `comment`\n"
-				"private $`name` = null;\n"
-				"public function clear`capitalized_name`() { $this->`name` = null; }\n"
-
-				"public function get`capitalized_name`Count() { if ($this->`name` === null ) return 0; else return count($this->`name`); }\n"
+				"protected $`name` = array();\n"
+				"public function clear`capitalized_name`() { $this->`name` = array(); }\n"
+				"public function get`capitalized_name`Count() { return count($this->`name`); }\n"
+				"public function has`capitalized_name`() { return (count($this->`name`) > 0); }\n"
+				"public function indexOf`capitalized_name`($value) { return array_search($value,$this->`name`);}\n"
+				"public function remove`capitalized_name`($index) { unset($this->`name`[$index]); }\n"
+				"public function removeVal`capitalized_name`($value) { $idx = array_search($value,$this->`name`); if($idx !== FALSE){unset($this->`name`[$idx]); }}\n"
+				"public function removeVals`capitalized_name`($values) { foreach($values as $value){$idx = array_search($value,$this->`name`); if($idx !== FALSE){unset($this->`name`[$idx]); }}}\n"
+				"public function push`capitalized_name`($newvar) { return array_push($this->`name`,`cast`$newvar); }\n"
+				"public function pop`capitalized_name`() { return array_pop($this->`name`); }\n"
+				"public function shift`capitalized_name`() { return array_shift($this->`name`); }\n"
+				"public function unshift`capitalized_name`($newvar) { return array_unshift($this->`name`,`cast`$newvar); }\n"
 				"public function get`capitalized_name`($index) { return $this->`name`[$index]; }\n"
-				"public function get`capitalized_name`Array() { if ($this->`name` === null ) return array(); else return $this->`name`; }\n"
-			);
-
-			// TODO Change the set code to validate input depending on the variable type
-			printer.Print(variables,
-				"public function set`capitalized_name`($index, $value) {$this->`name`[$index] = $value;	}\n"
-				"public function add`capitalized_name`($value) { $this->`name`[] = $value; }\n"
-				"public function addAll`capitalized_name`(array $values) { foreach($values as $value) {$this->`name`[] = $value;} }\n"
+				"public function get`capitalized_name`Array() { return $this->`name`; }\n"
+				"public function set`capitalized_name`($index, $value) {$this->`name`[$index] = `cast`$value;	}\n"
+				"public function add`capitalized_name`($value) { $this->`name`[] = `cast`$value; }\n"
+				"public function addAll`capitalized_name`(array $values) { foreach($values as $value) {$this->`name`[] = `cast`$value;} }\n"
 			);
 
 		} else {
 			// Non repeated field
-			printer.Print(variables,
-				"// `comment`\n"
-				"private $`name` = null;\n"
-				"public function clear`capitalized_name`() { $this->`name` = null; }\n"
-				"public function has`capitalized_name`() { return $this->`name` !== null; }\n"
+			// Determine if we should print the default, or leave unset
+			if(field.has_default_value()){
+			    printer.Print(variables,
+				    "// `comment`\n"
+				    "protected $`name` = `default`;\n"
+				    "public function reset`capitalized_name`() { $this->`name` = `default`;}\n"
+			    );
 
-				"public function get`capitalized_name`() { if($this->`name` === null) return `default`; else return $this->`name`; }\n"
-			);
+			}else{
+			    printer.Print(variables,
+				    "// `comment`\n"
+				    "protected $`name`;\n"
+				    "public function reset`capitalized_name`() { unset($this->`name`); }\n"
+			    );
+			}
 
-			// TODO Change the set code to validate input depending on the variable type
 			printer.Print(variables,
-				"public function set`capitalized_name`(`type`$value) { $this->`name` = $value; }\n"
-			);
+				"public function clear`capitalized_name`() { unset($this->`name`); }\n"
+				"public function has`capitalized_name`() { return isset($this->`name`); }\n"
+				"public function get`capitalized_name`() { return $this->`name`; }\n"
+				"public function set`capitalized_name`(`type`$value) { $this->`name` = `cast`$value; }\n"
+				);
+
 		}
 			}
 
@@ -952,7 +1000,7 @@ void PHPCodeGenerator::PrintEnum(io::Printer &printer, const EnumDescriptor & e)
 		const EnumValueDescriptor &value ( *e.value(j) );
 
 		printer.Print(
-			"`number` => self::`name`,\n",
+			"`number` => '`name`',\n",
 			"number", SimpleItoa(value.number()),
 			"name",   UpperString(value.name())
 		);
